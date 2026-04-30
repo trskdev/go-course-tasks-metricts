@@ -1,0 +1,15 @@
+# Grafana будет искать JSON-дашборды в смонтированной папке.
+# Пока она пустая - это нормально. В task02-grafana ты соберёшь дашборд вручную
+# и (по желанию) экспортнёшь JSON сюда, чтобы он провижнился автоматически.
+apiVersion: 1
+
+providers:
+  - name: local-dashboards
+    orgId: 1
+    folder: Local
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

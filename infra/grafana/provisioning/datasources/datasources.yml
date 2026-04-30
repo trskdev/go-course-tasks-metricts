@@ -1,0 +1,30 @@
+# Провижн datasources - Grafana подхватит их при старте и не придётся кликать в UI.
+# Документация: https://grafana.com/docs/grafana/latest/administration/provisioning/#data-sources
+apiVersion: 1
+
+datasources:
+  # Источник метрик. UID фиксирован, чтобы дашборды могли на него ссылаться.
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    # Внутри docker-сети контейнер виден по имени сервиса из docker-compose.
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      # Таймаут PromQL-запроса из Grafana к Prometheus.
+      timeout: 30
+      httpMethod: POST
+
+  # Источник трейсов. В панели можно будет прыгать от trace_id → конкретный спан.
+  - name: Jaeger
+    uid: jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    jsonData:
+      # Связываем Jaeger ↔ Prometheus, чтобы из трейса одним кликом видеть RED-метрики.
+      tracesToMetrics:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true

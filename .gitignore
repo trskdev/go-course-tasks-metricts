@@ -1,0 +1,15 @@
+# Go build artifacts
+*.exe
+*.test
+*.out
+
+# Бинарники из `go build ./...` - в каждом модуле создаётся файл с именем из go.mod.
+/task01-prometheus/metrics-task01
+/task03-jaeger/metrics-task03
+/task04-project/user-service/user-service
+/task04-project/order-service/order-service
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
