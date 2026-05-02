@@ -101,12 +101,16 @@ func initTracer(ctx context.Context) (func(context.Context) error, error) {
 
 	// TODO 2: создай TracerProvider и зарегистрируй его глобально.
 	//
-	//   tp := sdktrace.NewTracerProvider(
+	//   tp = sdktrace.NewTracerProvider(
 	//       sdktrace.WithBatcher(exporter),                  // см. ниже про батчинг
 	//       sdktrace.WithResource(res),                       // наши метаданные
 	//       sdktrace.WithSampler(sdktrace.AlwaysSample()),    // 100% - для учёбы
 	//   )
 	//   otel.SetTracerProvider(tp)
+	//
+	// ВАЖНО: именно `tp =`, а не `tp :=` - переменная уже объявлена ниже через var.
+	// Если напишешь `:=`, компилятор выдаст "no new variables on left side of :=".
+	// Это нужно, чтобы closure в TODO 3 видела тот же tp и могла вызвать tp.Shutdown.
 	//
 	// Зачем WithBatcher, а не SimpleSpanProcessor?
 	//   SimpleSpanProcessor шлёт каждый спан отдельным HTTP-запросом. На 10k RPS
@@ -281,7 +285,10 @@ func main() {
 
 	// TODO 5: оберни mux в otelhttp.NewHandler.
 	//
-	//   handler := otelhttp.NewHandler(mux, "http.server")
+	//   handler = otelhttp.NewHandler(mux, "http.server")
+	//
+	// ВАЖНО: именно `=`, а не `:=` - переменная handler уже объявлена выше.
+	// Если напишешь `:=`, компилятор выдаст ошибку "no new variables on left side of :=".
 	//
 	// Второй аргумент - дефолтное имя корневого спана, если middleware не смог
 	// определить его по роуту. В Jaeger ты обычно хочешь видеть что-то вроде

@@ -64,17 +64,17 @@ docker compose down -v       # стереть всё, начать с чисто
 
 ## Как это всё связано
 
-```
-┌──────────────────┐    GET /metrics    ┌──────────────┐
-│  твой Go-сервис  │ ◀───────────────── │  Prometheus  │
-│  :8081/metrics   │                    │    :9090     │
-│  :8081/hello     │                    └──────┬───────┘
-│                  │    трейсы по OTLP         │ PromQL
-│  OTel SDK ───────┼──▶ :4318 ──▶ Jaeger       ▼
-└──────────────────┘                    ┌──────────────┐
-                                        │   Grafana    │
-                                        │    :3000     │
-                                        └──────────────┘
+```mermaid
+graph LR
+    svc["**твой Go-сервис**\n:8081/hello\n:8081/metrics\nOTel SDK"]
+    prom["**Prometheus**\n:9090"]
+    jaeger["**Jaeger**\n:16686"]
+    grafana["**Grafana**\n:3000"]
+
+    prom -->|"GET /metrics\nкаждые 5с"| svc
+    svc -->|"трейсы по OTLP\n→ :4318"| jaeger
+    grafana -->|"PromQL"| prom
+    grafana -->|"трейсы"| jaeger
 ```
 
 Разберём по ролям - кто что делает и зачем:

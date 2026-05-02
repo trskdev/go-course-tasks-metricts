@@ -10,24 +10,23 @@
 
 ## Архитектура
 
-```
-   curl :8082/order/42
-         │
-         ▼
-┌──────────────────┐   GET /user/42    ┌──────────────────┐
-│  order-service   │ ────────────────▶ │  user-service    │
-│   :8082          │   traceparent:… │   :8083          │
-│   /metrics :8082 │                   │   /metrics :8083 │
-└────────┬─────────┘                   └────────┬─────────┘
-         │                                      │
-         │  OTLP :4318                          │
-         └──────────────▶ Jaeger ◀──────────────┘
-         ▲                                      ▲
-         │  scrape /metrics    scrape /metrics  │
-         └──── Prometheus :9090 ────────────────┘
-                         ▲
-                         │
-                       Grafana :3000
+```mermaid
+graph TB
+    curl(["curl :8082/order/42"])
+    order["**order-service**\n:8082  /metrics :8082"]
+    user["**user-service**\n:8083  /metrics :8083"]
+    jaeger["**Jaeger**\n:16686"]
+    prom["**Prometheus**\n:9090"]
+    grafana["**Grafana**\n:3000"]
+
+    curl --> order
+    order -->|"GET /user/42\ntraceparent: …"| user
+    order -->|"трейсы OTLP :4318"| jaeger
+    user  -->|"трейсы OTLP :4318"| jaeger
+    prom  -->|"scrape /metrics"| order
+    prom  -->|"scrape /metrics"| user
+    grafana -->|"PromQL"| prom
+    grafana -->|"трейсы"| jaeger
 ```
 
 **order-service** (`:8082`) принимает запросы, валидирует, ходит за пользователем в другой сервис, возвращает "заказ".
@@ -39,11 +38,13 @@
 ## Что лежит в проекте
 
 В каждом сервисе три файла:
-- `main.go` - бизнес-логика + два TODO: собрать middleware и/или клиент.
+- `main.go` - бизнес-логика + **по одному TODO** на каждый сервис: зарегистрировать handler с middleware.
 - `obs.go` - **готовая** обвязка observability: метрики RED, `initTracer`. Её трогать не надо.
 - `go.mod` - зависимости.
 
 Почему obs.go уже написан: в task01 и task03 ты это уже проходил, тут бы только механически повторил. Лучше сосредоточься на новом - как связать два сервиса в один trace.
+
+Кроме TODO, в order-service/main.go уже написан готовый `httpClient` с `otelhttp.NewTransport` - это ключевой механизм задачи. Прочитай раздел "2. В order-service" ниже, чтобы понять зачем он именно такой.
 
 ---
 
@@ -66,9 +67,16 @@ mux.Handle("/user/", userH)
 
 ### 2. В order-service (main.go)
 
-Тут **главная фишка задачи**. Надо, чтобы при вызове user-service к HTTP-запросу автоматически прикрепился заголовок `traceparent` - иначе user-service не узнает, что это продолжение trace-а.
+**Твой TODO** — зарегистрировать `orderHandler` с теми же двумя обёртками, что и в user-service:
+```go
+orderH := otelhttp.NewHandler(
+    metricsMiddleware(http.HandlerFunc(orderHandler)),
+    "GET /order/:id",
+)
+mux.Handle("/order/", orderH)
+```
 
-Магия делается обёрткой `http.RoundTripper`:
+**Главная фишка задачи** — уже написанный за тебя `httpClient`:
 ```go
 httpClient := &http.Client{
     Transport: otelhttp.NewTransport(http.DefaultTransport),
@@ -76,13 +84,16 @@ httpClient := &http.Client{
 }
 ```
 
-Каждый раз когда через этот клиент уходит запрос, `otelhttp.Transport` достаёт из `ctx` активный спан и добавляет `traceparent` в заголовки. Готово.
+Именно `otelhttp.NewTransport` делает так, что при каждом вызове user-service к запросу автоматически прикрепляется заголовок `traceparent`. Без него user-service не узнает, что это продолжение того же trace-а.
 
-**Если забыть** и сделать `http.DefaultClient.Do(req)` - заголовок не добавится, в Jaeger увидишь **два** отдельных trace-а. Это самая частая ошибка при внедрении трейсинга.
+**Если забыть** и использовать `http.DefaultClient.Do(req)` - заголовок не добавится, в Jaeger увидишь **два** отдельных trace-а. Это самая частая ошибка при внедрении трейсинга.
 
 ---
 
 ## Запуск
+
+> **Важно:** order-service использует порт `:8082` — тот же, что и сервис из task03.
+> Если task03 ещё запущен, останови его (`Ctrl+C`) перед стартом task04.
 
 Нужно три терминала (плюс инфра в фоне):
 

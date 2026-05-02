@@ -4,7 +4,7 @@
 //   GET /user/{id}  - вернёт "user-<id>"
 //   GET /metrics    - метрики для Prometheus
 //
-// Этот сервис вызывает order-service (task04-project/order-service).
+// Этот сервис вызывается из order-service (task04-project/order-service).
 // В Jaeger оба должны оказаться в одном trace - за это отвечает otelhttp.NewHandler,
 // который прочитает traceparent-заголовок из входящего запроса.
 

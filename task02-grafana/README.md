@@ -133,6 +133,7 @@ histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[
 Кнопка **Save dashboard** в шапке. Имя: `Go service - RED`.
 
 Идеальный вариант - чтобы дашборд выглядел так:
+
 ```
 ┌────────────────┬────────────────┐
 │   RPS total    │  RPS by path   │
@@ -161,7 +162,7 @@ docker compose restart grafana
 
 ## Вопросы на подумать
 
-1. Почему `rate(X[1m])` без суффикса `m/h` - синтаксическая ошибка?
+1. Что произойдёт, если написать `rate(X)` без range selector `[1m]`? Почему PromQL требует именно range vector?
 2. Что вернёт `histogram_quantile(0.95, http_request_duration_seconds_bucket)` без `rate()` вокруг bucket-а? (Спойлер: p95 за всё время жизни процесса. Обычно это не то, что ты хотел.)
 3. Почему именно `sum by (le)`, а не `sum by (path, le)`? Когда нужно `sum by (path, le)`?
 4. Что выгоднее - `sum(rate(x[5m]))` или попытка `rate(sum(x)[5m])`? Почему второе не работает?

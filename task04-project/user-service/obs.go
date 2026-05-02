@@ -92,6 +92,7 @@ func metricsMiddleware(next http.Handler) http.Handler {
 //     traceparent,
 //   - при входящем (через otelhttp.NewHandler) заголовок читался и trace
 //     продолжался, а не начинался заново.
+//
 // Если убрать - два сервиса окажутся в разных trace-ах.
 func initTracer(ctx context.Context, serviceName string) (func(context.Context) error, error) {
 	exporter, err := otlptracehttp.New(ctx,
