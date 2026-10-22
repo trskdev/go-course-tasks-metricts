@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
@@ -112,6 +113,8 @@ func validateOrder(ctx context.Context, id string) error {
 	defer span.End()
 	span.SetAttributes(attribute.String("order.id", id))
 
+	time.Sleep(time.Duration(10+rand.Intn(10)) * time.Millisecond)
+
 	if strings.TrimSpace(id) == "" {
 		err := errors.New("empty order id")
 		span.SetStatus(codes.Error, err.Error())
@@ -170,9 +173,11 @@ func main() {
 	//   от curl/hey). otelhttp.NewHandler отвечает за СЕРВЕРНУЮ часть -
 	//   создаёт корневой спан для ВХОДЯЩИХ запросов. А otelhttp.NewTransport -
 	//   за клиентскую, для ИСХОДЯЩИХ. Нужны оба.
-	_ = orderHandler
-	_ = metricsMiddleware
-	_ = otelhttp.NewHandler
+	orderH := otelhttp.NewHandler(
+		metricsMiddleware(http.HandlerFunc(orderHandler)),
+		"GET /order/:id",
+	)
+	mux.Handle("/order/", orderH)
 
 	mux.Handle("/metrics", promhttp.Handler())
 

@@ -78,9 +78,13 @@ func initTracer(ctx context.Context) (func(context.Context) error, error) {
 	// Зачем WithInsecure: по умолчанию OTLP-клиент пытается в HTTPS, и без сертификата
 	// у него ничего не выйдет. Для локального Jaeger (в docker-compose) TLS лишний.
 	// В проде этого флага быть не должно.
-	var exporter sdktrace.SpanExporter
-	_ = exporter
-	_ = otlptracehttp.New
+	exporter, err := otlptracehttp.New(ctx,
+		otlptracehttp.WithEndpoint("localhost:4318"),
+		otlptracehttp.WithInsecure(),
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Resource - это "метаданные сервиса". Все атрибуты, добавленные сюда, будут
 	// приклеены ко ВСЕМ спанам, которые сгенерит этот процесс. В Jaeger они попадают
@@ -126,8 +130,12 @@ func initTracer(ctx context.Context) (func(context.Context) error, error) {
 	//   Чтобы дальше в коде можно было писать otel.Tracer("...") и получать
 	//   трейсер, подключённый к этому провайдеру. Это глобальная синглтон-точка.
 	var tp *sdktrace.TracerProvider
-	_ = tp
-	_ = res
+	tp = sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+	otel.SetTracerProvider(tp)
 
 	// Propagator - штука, которая кодирует trace_id в/из HTTP-заголовков.
 	// TraceContext = стандарт W3C, заголовок `traceparent`. Его понимают все
@@ -147,7 +155,7 @@ func initTracer(ctx context.Context) (func(context.Context) error, error) {
 		// Shutdown делает три вещи: флашит буфер в экспортер, закрывает экспортер,
 		// отключает провайдер. ctx с таймаутом - чтобы не висеть навсегда, если
 		// Jaeger уже лёг.
-		return nil
+		return tp.Shutdown(ctx)
 	}, nil
 }
 
@@ -162,7 +170,7 @@ var tracer = otel.Tracer("task03-jaeger/order")
 
 // validateInput имитирует валидацию. Важно: принимает ctx первым аргументом -
 // это соглашение Go для всего, что может стать спаном, походом в БД и т.д.
-func validateInput(ctx context.Context, id string) error {
+func validateInput(ctx context.Context, id string, r *http.Request) error {
 	// tracer.Start возвращает:
 	//   - новый ctx, в котором "активный спан" = наш validateInput
 	//   - сам span, на который можно вешать атрибуты
@@ -182,6 +190,11 @@ func validateInput(ctx context.Context, id string) error {
 	// attribute.String - одна из многих типобезопасных конструкций (Int, Bool и т.д.).
 	span.SetAttributes(attribute.String("order.id", id))
 
+	span.SetAttributes(
+		attribute.String("http.method", r.Method),
+		attribute.Int("input.length", len(id)),
+	)
+
 	if strings.TrimSpace(id) == "" {
 		err := errors.New("empty order id")
 
@@ -196,7 +209,8 @@ func validateInput(ctx context.Context, id string) error {
 		//     и (если включишь) стеком - чтобы в UI развернуть и посмотреть детали.
 		//   Один без другого - либо "красно, но непонятно что", либо "детали есть,
 		//   но на глаз ок".
-		_ = codes.Error
+		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
 
 		return err
 	}
@@ -250,7 +264,7 @@ func orderHandler(w http.ResponseWriter, r *http.Request) {
 	// Простейший парсинг: /order/42 → id = "42"
 	id := strings.TrimPrefix(r.URL.Path, "/order/")
 
-	if err := validateInput(ctx, id); err != nil {
+	if err := validateInput(ctx, id, r); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -299,7 +313,7 @@ func main() {
 	// в будущих задачах (пустой шум). В проде обычно выключают трейсинг для
 	// health-чеков и /metrics.
 	var handler http.Handler = mux
-	_ = otelhttp.NewHandler
+	handler = otelhttp.NewHandler(mux, "http.server")
 
 	addr := ":8082"
 	log.Printf("listening on %s", addr)

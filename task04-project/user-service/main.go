@@ -54,6 +54,13 @@ func callDB(ctx context.Context, id string) (string, error) {
 	// 20..100ms - реалистичная задержка локального Postgres.
 	time.Sleep(time.Duration(20+rand.Intn(80)) * time.Millisecond)
 
+	if rand.Intn(5) == 0 {
+		err := errors.New("db timeout")
+		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
+		return "", err
+	}
+
 	if id == "" {
 		err := errors.New("empty user id")
 		span.SetStatus(codes.Error, err.Error())
@@ -113,9 +120,11 @@ func main() {
 	//   Это имя дефолтного корневого спана. В Jaeger оно будет отображаться
 	//   как operation name. Удобно, если все твои трейсы называются одинаково
 	//   осмысленно, а не "http.server".
-	_ = userHandler
-	_ = otelhttp.NewHandler
-	_ = metricsMiddleware
+	userH := otelhttp.NewHandler(
+		metricsMiddleware(http.HandlerFunc(userHandler)),
+		"GET /user/:id",
+	)
+	mux.Handle("/user/", userH)
 
 	// /metrics мы НЕ оборачиваем в otelhttp/metricsMiddleware:
 	//   - оборачивать в metricsMiddleware - самопересечение (каждый скрейп

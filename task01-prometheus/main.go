@@ -14,6 +14,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -70,7 +71,13 @@ import (
 //	status - HTTP-код (200, 500, 404...). Десятки значений - ок.
 //
 // Замени nil на свою метрику.
-var httpRequests *prometheus.CounterVec
+var httpRequests = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "http_requests_total",
+		Help: "Количество HTTP-запросов по методу, пути и коду ответа.",
+	},
+	[]string{"method", "path", "status"},
+)
 
 // TODO 2: объяви httpDuration - *prometheus.HistogramVec.
 //
@@ -103,7 +110,21 @@ var httpRequests *prometheus.CounterVec
 //	    // "RPS и p95 по одному и тому же разрезу лейблов".
 //	    []string{"method", "path", "status"},
 //	)
-var httpDuration *prometheus.HistogramVec
+func initDefNCustomBuckets(additional []float64) []float64 {
+	customBuckets := append(prometheus.DefBuckets, additional...)
+	sort.Float64s(customBuckets)
+	return customBuckets
+}
+
+var httpDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "http_request_duration_seconds",
+		Help:    "Длительность обработки HTTP-запроса, в секундах.",
+		Buckets: initDefNCustomBuckets([]float64{0.001, 0.075}),
+		// 0.05 is not possible to add as it already exists and the addition breaks the app
+	},
+	[]string{"method", "path", "status"},
+)
 
 // =====================================================================
 // Middleware - измеряем каждый запрос
@@ -168,9 +189,11 @@ func metricsMiddleware(next http.Handler) http.Handler {
 		//   У нас всего два эндпоинта с фиксированными путями. В реальном роутере
 		//   (chi, gin) надо брать не Path, а шаблон роута - иначе /users/42 и
 		//   /users/43 создадут два разных ряда.
-		_ = start
-		_ = rec
-		_ = strconv.Itoa
+		duration := time.Since(start).Seconds()
+		status := strconv.Itoa(rec.status)
+
+		httpRequests.WithLabelValues(r.Method, r.URL.Path, status).Inc()
+		httpDuration.WithLabelValues(r.Method, r.URL.Path, status).Observe(duration)
 	})
 }
 
@@ -184,7 +207,7 @@ func metricsMiddleware(next http.Handler) http.Handler {
 func helloHandler(w http.ResponseWriter, r *http.Request) {
 	// math/rand/v2 в Go 1.22+ уже thread-safe без явной инициализации seed.
 	// rand.Intn(100) - случайное число 0..99.
-	time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
+	time.Sleep(time.Duration(rand.Intn(500)) * time.Millisecond)
 
 	// Каждый 10-й запрос - ошибка. Позже в Grafana увидим error rate 10%.
 	if rand.Intn(10) == 0 {
@@ -193,6 +216,15 @@ func helloHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = w.Write([]byte("hello\n"))
+}
+
+func slowHandler(w http.ResponseWriter, r *http.Request) {
+	time.Sleep(500 * time.Millisecond)
+	if rand.Intn(10) == 0 {
+		http.Error(w, "oops", http.StatusInternalServerError)
+		return
+	}
+	_, _ = w.Write([]byte("slow hello\n"))
 }
 
 // =====================================================================
@@ -215,8 +247,8 @@ func main() {
 	//
 	// Если захочешь ещё эндпоинт /slow с задержкой побольше - просто зарегистрируй
 	// так же. В метриках они автоматически разделятся лейблом path.
-	_ = helloHandler
-	_ = promauto.NewCounterVec // просто чтобы Go не ругался на неиспользованный promauto
+	mux.Handle("/hello", metricsMiddleware(http.HandlerFunc(helloHandler)))
+	mux.Handle("/slow", metricsMiddleware(http.HandlerFunc(slowHandler)))
 
 	// TODO 5: отдай /metrics через promhttp.Handler().
 	//
@@ -227,7 +259,7 @@ func main() {
 	//
 	// ВАЖНО: /metrics НЕ надо оборачивать в metricsMiddleware. Иначе каждый скрейп
 	// сам по себе будет инкрементить счётчик - получишь чудовищное искажение данных.
-	_ = promhttp.Handler
+	mux.Handle("/metrics", promhttp.Handler())
 
 	addr := ":8081"
 	log.Printf("listening on %s", addr)
